@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #FEFBF3;
+  --foreground: #000000;
+}
+
+@layer base {
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    @apply antialiased;
+  }
+}
+
+@layer components {
+  .btn-neo {
+    @apply relative px-6 py-3 border-2 border-black bg-white font-bold transition-all duration-200 
+    hover:translate-x-[2px] hover:translate-y-[2px] 
+    active:translate-x-[4px] active:translate-y-[4px] 
+    flex items-center justify-center gap-2;
+    box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
+  }
+  
+  .btn-neo:hover {
+    box-shadow: 2px 2px 0px 0px rgba(0,0,0,1);
+  }
+  
+  .btn-neo:active {
+    box-shadow: 0px 0px 0px 0px rgba(0,0,0,1);
+  }
+
+  .btn-neo-primary {
+    @apply btn-neo bg-accent-teal text-white;
+  }
+
+  .btn-neo-secondary {
+    @apply btn-neo bg-accent-cyan text-white;
+  }
+
+  .btn-neo-outline {
+    @apply btn-neo bg-transparent;
+  }
+
+  .card-neo {
+    @apply p-6 border-2 border-black bg-white transition-all duration-200;
+    box-shadow: 6px 6px 0px 0px rgba(0,0,0,1);
+  }
+
+  .card-neo:hover {
+    @apply -translate-x-1 -translate-y-1;
+    box-shadow: 10px 10px 0px 0px rgba(0,0,0,1);
+  }
+
+  .input-neo {
+    @apply w-full px-4 py-3 border-2 border-black bg-white focus:outline-none focus:ring-0 placeholder:text-gray-500 font-medium;
+    box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
+  }
+
+  .badge-neo {
+    @apply px-3 py-1 border-2 border-black font-bold text-xs uppercase tracking-wider bg-white;
+    box-shadow: 2px 2px 0px 0px rgba(0,0,0,1);
+  }
+}
+
+/* Smooth Scrolling */
+html {
+  scroll-behavior: smooth;
+}
