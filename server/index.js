@@ -1,31 +1,162 @@
 const express = require('express');
+const http = require('http');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const server = http.createServer(app);
 
-// Middleware
-app.use(cors());
+// Allowed origins
+const allowedOrigins = ['http://localhost:3000', 'http://localhost:3001'];
+
+// Socket.io setup
+const io = new Server(server, {
+  cors: {
+    origin: allowedOrigins,
+    credentials: true
+  }
+});
+
+// Make io accessible to routes
+app.set('io', io);
+
+// Security middleware
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
+app.use(cookieParser());
 app.use(express.json());
 
-// Database Connection
-console.log('Connecting to:', process.env.MONGO_URI ? 'URI found' : 'URI undefined');
+// Rate limiting on auth routes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { msg: 'Too many requests, please try again later' }
+});
+
+// Database
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB Connected'))
   .catch(err => console.error('MongoDB connection error:', err));
 
-// Routes (to be implemented)
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/items', require('./routes/items'));
-app.use('/api/transactions', require('./routes/transactions'));
+// Models
+require('./models/User');
+require('./models/Listing');
+require('./models/Conversation');
+require('./models/Message');
+require('./models/Rental');
+require('./models/TradeProposal');
+require('./models/Notification');
+require('./models/Review');
+require('./models/WishlistRequest');
+
+// Routes
+app.use('/api/auth', authLimiter, require('./routes/auth'));
+app.use('/api/listings', require('./routes/listings'));
 app.use('/api/users', require('./routes/users'));
+app.use('/api/conversations', require('./routes/conversations'));
+app.use('/api/messages', require('./routes/messages'));
+app.use('/api/rentals', require('./routes/rentals'));
+app.use('/api/trades', require('./routes/trades'));
+app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/reviews', require('./routes/reviews'));
+app.use('/api/wishlist', require('./routes/wishlist'));
 
-app.get('/', (req, res) => {
-  res.send('TradeHub API is running...');
+app.get('/', (req, res) => res.send('TradeHub API v2'));
+
+// Socket.io authentication middleware
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) return next(new Error('Authentication error'));
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.userId = decoded.user?.id || decoded.id;
+    next();
+  } catch (err) {
+    next(new Error('Authentication error'));
+  }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// Socket.io connection handler
+io.on('connection', (socket) => {
+  console.log(`User connected: ${socket.userId}`);
+  socket.join(socket.userId); // Personal room for notifications
+
+  socket.on('join_conversation', (conversationId) => {
+    socket.join(conversationId);
+  });
+
+  socket.on('leave_conversation', (conversationId) => {
+    socket.leave(conversationId);
+  });
+
+  socket.on('send_message', async (data) => {
+    try {
+      const Message = require('./models/Message');
+      const Conversation = require('./models/Conversation');
+
+      const message = new Message({
+        conversation: data.conversationId,
+        sender: socket.userId,
+        text: data.text,
+        imageUrl: data.imageUrl || ''
+      });
+      await message.save();
+      const populated = await Message.findById(message._id).populate('sender', 'name avatar');
+
+      // Update conversation
+      const convo = await Conversation.findById(data.conversationId);
+      convo.lastMessage = data.text || '📷 Image';
+      convo.lastTimestamp = new Date();
+      // Increment unread for all participants except sender
+      convo.participants.forEach(p => {
+        if (p.toString() !== socket.userId) {
+          convo.unreadCount.set(p.toString(), (convo.unreadCount.get(p.toString()) || 0) + 1);
+        }
+      });
+      await convo.save();
+
+      io.to(data.conversationId).emit('new_message', populated);
+
+      // Notify other participants
+      convo.participants.forEach(p => {
+        if (p.toString() !== socket.userId) {
+          io.to(p.toString()).emit('unread_count_updated', {
+            conversationId: data.conversationId,
+            count: convo.unreadCount.get(p.toString()) || 0
+          });
+        }
+      });
+    } catch (err) {
+      console.error('send_message error:', err);
+    }
+  });
+
+  socket.on('typing_start', (data) => {
+    socket.to(data.conversationId).emit('user_typing', {
+      userId: socket.userId,
+      name: data.name
+    });
+  });
+
+  socket.on('typing_stop', (data) => {
+    socket.to(data.conversationId).emit('user_stopped_typing', {
+      userId: socket.userId
+    });
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`User disconnected: ${socket.userId}`);
+  });
 });
+
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
