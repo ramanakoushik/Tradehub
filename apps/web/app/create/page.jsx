@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import { useAuth } from '@/context/AuthContext';
 import api from '@/lib/api';
-import { Upload, X, Plus } from 'lucide-react';
+import { Upload, X, Plus, Image as ImageIcon } from 'lucide-react';
 
 const CATEGORIES = ['Electronics', 'Books', 'Furniture', 'Clothing', 'Sports', 'Other'];
 const CONDITIONS = ['New', 'Like New', 'Good', 'Fair'];
@@ -13,10 +13,13 @@ const CONDITIONS = ['New', 'Like New', 'Good', 'Fair'];
 export default function CreateListingPage() {
   const { user } = useAuth();
   const router = useRouter();
+  const fileInputRef = useRef(null);
   const [loading, setLoading] = useState(false);
+  const [localFiles, setLocalFiles] = useState([]); // Array of File objects
+  const [previews, setPreviews] = useState([]); // Array of Object URLs
   const [form, setForm] = useState({
     title: '', description: '', category: 'Electronics', condition: 'Good',
-    type: [], price: '', rentPeriod: 'daily', tradePreference: '', images: ['']
+    type: [], price: '', rentPeriod: 'daily', tradePreference: '', images: []
   });
 
   const toggleType = (t) => {
@@ -26,18 +29,42 @@ export default function CreateListingPage() {
     }));
   };
 
-  const updateImage = (i, val) => {
-    const imgs = [...form.images];
-    imgs[i] = val;
-    setForm({ ...form, images: imgs });
+  const handleFileChange = (e) => {
+    const files = Array.from(e.target.files);
+    if (localFiles.length + files.length > 5) {
+      alert('Maximum 5 images allowed');
+      return;
+    }
+
+    setLocalFiles(prev => [...prev, ...files]);
+    const newPreviews = files.map(file => URL.createObjectURL(file));
+    setPreviews(prev => [...prev, ...newPreviews]);
   };
 
-  const addImageSlot = () => {
-    if (form.images.length < 5) setForm({ ...form, images: [...form.images, ''] });
+  const removeLocalFile = (index) => {
+    setLocalFiles(prev => prev.filter((_, i) => i !== index));
+    // Revoke the URL to avoid memory leaks
+    URL.revokeObjectURL(previews[index]);
+    setPreviews(prev => prev.filter((_, i) => i !== index));
   };
 
-  const removeImageSlot = (i) => {
-    setForm({ ...form, images: form.images.filter((_, idx) => idx !== i) });
+  const uploadImages = async () => {
+    if (localFiles.length === 0) return [];
+    
+    const formData = new FormData();
+    localFiles.forEach(file => {
+      formData.append('images', file);
+    });
+
+    try {
+      const res = await api.post('/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      return res.data.urls;
+    } catch (err) {
+      console.error('Upload Error:', err);
+      throw new Error('Failed to upload images');
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -47,15 +74,22 @@ export default function CreateListingPage() {
 
     setLoading(true);
     try {
+      // 1. Upload local images first
+      const uploadedUrls = await uploadImages();
+      
+      // 2. Combine with any URL-based images (if we still allowed them, but we've simplified to local)
+      const finalImages = uploadedUrls;
+
       const payload = {
         ...form,
         price: Number(form.price) || 0,
-        images: form.images.filter(u => u.trim())
+        images: finalImages
       };
+      
       const res = await api.post('/listings', payload);
       router.push(`/listing/${res.data._id}`);
     } catch (err) {
-      alert(err.response?.data?.msg || 'Failed to create listing');
+      alert(err.message || err.response?.data?.msg || 'Failed to create listing');
     } finally { setLoading(false); }
   };
 
@@ -63,7 +97,7 @@ export default function CreateListingPage() {
     <main className="min-h-screen bg-cream">
       <Navbar />
       <div className="container mx-auto px-4 py-12 max-w-2xl">
-        <h1 className="text-4xl font-black uppercase italic tracking-tighter mb-8">Post New Item</h1>
+        <h1 className="text-4xl font-black uppercase italic tracking-tighter mb-8 text-black">Post New Item</h1>
 
         <form onSubmit={handleSubmit} className="card-neo bg-white p-8 space-y-6">
           {/* Title */}
@@ -143,25 +177,30 @@ export default function CreateListingPage() {
             </div>
           )}
 
-          {/* Images */}
+          {/* Local Image Upload */}
           <div>
-            <label className="block text-xs font-black uppercase mb-2 text-gray-500">Image URLs (up to 5)</label>
-            <div className="space-y-2">
-              {form.images.map((url, i) => (
-                <div key={i} className="flex gap-2">
-                  <input type="url" value={url} onChange={(e) => updateImage(i, e.target.value)}
-                    className="input-neo flex-1 px-4 py-2 text-sm" placeholder="https://..." />
-                  {form.images.length > 1 && (
-                    <button type="button" onClick={() => removeImageSlot(i)} className="p-2 text-red-500 hover:bg-red-50 border-2 border-black">
-                      <X size={16} />
-                    </button>
-                  )}
+            <label className="block text-xs font-black uppercase mb-2 text-gray-500">Photos (up to 5)</label>
+            
+            <input type="file" multiple accept="image/*" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+            
+            <div className="grid grid-cols-3 gap-4">
+              {previews.map((src, i) => (
+                <div key={i} className="relative aspect-square border-2 border-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] bg-gray-100 group">
+                  <img src={src} alt="Preview" className="w-full h-full object-cover" />
+                  <button type="button" onClick={() => removeLocalFile(i)}
+                    className="absolute -top-2 -right-2 bg-red-500 text-white p-1 border-2 border-black rounded-none hover:bg-red-600 transition-colors">
+                    <X size={14} />
+                  </button>
                 </div>
               ))}
-              {form.images.length < 5 && (
-                <button type="button" onClick={addImageSlot}
-                  className="text-xs font-black uppercase text-accent-teal flex items-center gap-1 mt-1">
-                  <Plus size={14} /> Add Another Image
+              
+              {localFiles.length < 5 && (
+                <button type="button" onClick={() => fileInputRef.current?.click()}
+                  className="aspect-square border-2 border-dashed border-black flex flex-col items-center justify-center gap-2 hover:bg-accent-teal/5 transition-colors group">
+                  <div className="w-10 h-10 bg-accent-teal/10 flex items-center justify-center border-2 border-black group-hover:bg-accent-teal group-hover:text-white transition-all">
+                    <Plus size={20} />
+                  </div>
+                  <span className="text-[10px] font-black uppercase">Add Photo</span>
                 </button>
               )}
             </div>
@@ -169,7 +208,7 @@ export default function CreateListingPage() {
 
           <button type="submit" disabled={loading}
             className="btn-neo bg-black text-white w-full py-4 uppercase font-black text-lg flex items-center justify-center gap-2 disabled:opacity-50">
-            <Upload size={20} /> {loading ? 'Posting...' : 'Post Listing'}
+            <Upload size={20} /> {loading ? 'Uploading & Posting...' : 'Post Listing'}
           </button>
         </form>
       </div>

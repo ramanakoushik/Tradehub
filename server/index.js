@@ -27,7 +27,10 @@ const io = new Server(server, {
 app.set('io', io);
 
 // Security middleware
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({ 
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: false // Allow loading images from different ports (3000 vs 5000)
+}));
 app.use(cors({
   origin: allowedOrigins,
   credentials: true
@@ -69,6 +72,12 @@ app.use('/api/trades', require('./routes/trades'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/reviews', require('./routes/reviews'));
 app.use('/api/wishlist', require('./routes/wishlist'));
+app.use('/api/upload', require('./routes/upload'));
+
+// Serve static files
+app.use(express.static('public'));
+app.use('/uploads', express.static('public/uploads'));
+
 
 app.get('/', (req, res) => res.send('TradeHub API v2'));
 

@@ -6,7 +6,8 @@ import Navbar from '@/components/Navbar';
 import Link from 'next/link';
 import api from '@/lib/api';
 import { getSocket } from '@/lib/socket';
-import { Search, Sliders, Star } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { Search, Sliders, Star, Trash2 } from 'lucide-react';
 
 const CATEGORIES = ['Electronics', 'Books', 'Furniture', 'Clothing', 'Sports', 'Other'];
 const CONDITIONS = ['New', 'Like New', 'Good', 'Fair'];
@@ -14,6 +15,7 @@ const TYPES = ['sell', 'rent', 'trade'];
 
 export default function ListingsPage() {
   const searchParams = useSearchParams();
+  const { user } = useAuth();
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
@@ -168,42 +170,70 @@ export default function ListingsPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-                {listings.map(item => (
-                  <Link key={item._id} href={`/listing/${item._id}`}
-                    className="card-neo bg-white overflow-hidden group hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all">
-                    <div className="h-48 bg-gray-100 overflow-hidden relative">
-                      <img src={item.images?.[0] || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400'}
-                        alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                      {item.status !== 'active' && (
-                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                          <span className="text-white font-black uppercase text-lg">{item.status}</span>
+                {listings.map(item => {
+                  const sellerId = item.seller?._id || item.seller;
+                  const isOwner = user && user._id === sellerId;
+                  
+                  return (
+                    <div key={item._id} className="relative group/card">
+                      <Link href={`/listing/${item._id}`}
+                        className="card-neo block bg-white h-full overflow-hidden group hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all">
+                        <div className="h-48 bg-gray-100 overflow-hidden relative">
+                          <img src={item.images?.[0] || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400'}
+                            alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          {item.status !== 'active' && (
+                            <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                              <span className="text-white font-black uppercase text-lg">{item.status}</span>
+                            </div>
+                          )}
+                          <div className="absolute top-3 left-3 flex gap-1">
+                            {item.type?.map(t => (
+                              <span key={t} className="px-2 py-0.5 bg-white/90 text-black text-[9px] font-black uppercase border border-black">{t}</span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="p-4">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 border border-black
+                              ${item.condition === 'New' ? 'bg-green-100' : item.condition === 'Like New' ? 'bg-blue-100' : 'bg-yellow-100'}`}>
+                              {item.condition}
+                            </span>
+                            <span className="text-[9px] text-gray-400 font-bold">👁 {item.views}</span>
+                          </div>
+                          <h3 className="font-black uppercase text-sm truncate mt-2">{item.title}</h3>
+                          <p className="text-accent-teal font-black text-lg mt-1">₹{item.price}</p>
+                          <div className="flex items-center gap-2 mt-2 text-[10px] font-bold text-gray-400">
+                            <span>{item.seller?.name || 'Unknown'}</span>
+                            {item.seller?.rating > 0 && (
+                              <span className="flex items-center gap-0.5"><Star size={10} className="text-yellow-500 fill-yellow-500" /> {item.seller.rating}</span>
+                            )}
+                          </div>
+                        </div>
+                      </Link>
+                      {/* Quick Delete Overlay for Owners */}
+                      {isOwner && (
+                        <div className="absolute top-2 right-2 flex gap-1 z-20">
+                          <button 
+                            onClick={async (e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (confirm('Delete this listing?')) {
+                                try {
+                                  await api.delete(`/listings/${item._id}`);
+                                  setListings(prev => prev.filter(l => l._id !== item._id));
+                                } catch (err) { alert('Failed to delete'); }
+                              }
+                            }}
+                            className="p-1.5 bg-red-500 text-white border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
+                            title="Quick Delete"
+                          >
+                            <Trash2 size={12} />
+                          </button>
                         </div>
                       )}
-                      <div className="absolute top-3 left-3 flex gap-1">
-                        {item.type?.map(t => (
-                          <span key={t} className="px-2 py-0.5 bg-white/90 text-black text-[9px] font-black uppercase border border-black">{t}</span>
-                        ))}
-                      </div>
                     </div>
-                    <div className="p-4">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 border border-black
-                          ${item.condition === 'New' ? 'bg-green-100' : item.condition === 'Like New' ? 'bg-blue-100' : 'bg-yellow-100'}`}>
-                          {item.condition}
-                        </span>
-                        <span className="text-[9px] text-gray-400 font-bold">👁 {item.views}</span>
-                      </div>
-                      <h3 className="font-black uppercase text-sm truncate mt-2">{item.title}</h3>
-                      <p className="text-accent-teal font-black text-lg mt-1">₹{item.price}</p>
-                      <div className="flex items-center gap-2 mt-2 text-[10px] font-bold text-gray-400">
-                        <span>{item.seller?.name || 'Unknown'}</span>
-                        {item.seller?.rating > 0 && (
-                          <span className="flex items-center gap-0.5"><Star size={10} className="text-yellow-500 fill-yellow-500" /> {item.seller.rating}</span>
-                        )}
-                      </div>
-                    </div>
-                  </Link>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
